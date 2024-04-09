@@ -11,10 +11,16 @@
 [CmdLetBinding()]
 Param
 (
+    [Parameter(Mandatory=$true)]
+    $OutputPath,
     [Parameter(Mandatory=$false)]
     $OrganizationalUnit
 )
 
+# Region Output
+$OutputFileDisabledManagers = Join-Path -Path $OutputPath -ChildPath "DisabledManagerUsers.txt"
+$OutputFileEmptyManagers = Join-Path -Path $OutputPath -ChildPath "NoManagerSet.txt"
+# End Region Output
 #Region Messages
 $LoadSuccess = "Successfully loaded "
 $LoadError = "Error loading "
@@ -52,7 +58,7 @@ $MessageDomainFQDN = "Current Domain FQDN: "
 $MessageDomainDN = "Current Domain DN: "
 $MessageDomainCN = "Domain canonical name: "
 $MessageDCsFouned = "Domain Controllers found: "
-$MessageTargetDC = "Target Domain Controller: "
+$MessageTargetDC = "Target Domain Controller selected: "
 $MessageDefaultOU = "Default AD container is "
 $MessageUPNSuffixes = "UPN Suffixes found:"
 $MessageNoObjectSelected = "No object was selected!"
@@ -210,18 +216,44 @@ function Show-MessageBox
 
     [System.Windows.Forms.MessageBox]::Show($BoxMessageText, $BoxTitle, $Buttons, $BoxIcon)
 }
+function Get-DomainControllersforDomain
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]
+        $DomainName
+    )
+
+    Try
+    {
+        [array]$DCs = Get-ADDomainController -DomainName $DomainName -Discover -ErrorAction Stop| Select-Object $ColumnsDCsDatagrid
+        Write-LogFile -Message "$($LoadSuccess) Domain Controllers."
+    }
+
+    catch
+    {
+        Write-LogFile "$($LoadError)$($ADDCs)." -ErrorInfo $_
+    }
+
+    Return $DCs
+}
 function Get-ManagerUser
 {
+    [CmdletBinding()]
     Param
     (
         [Parameter(Mandatory=$true)]
         $Username
     )
 
-    
+    $Filter = "Enabled -eq ""False"" -and DistinguishedName -eq ""$UserName"""
+    $Enabled = Get-ADUser -Filter $Filter -Properties DisplayName | Select-Object DisplayName,SamAccountName
+    Return $Enabled
 }
 function Get-ADUserManagerData
 {
+    [CmdletBinding()]
     Param
     (
         [Parameter(Mandatory=$False)]
@@ -230,13 +262,37 @@ function Get-ADUserManagerData
 
     try
     {
-        $UserManagerData = Get-ADuser -
+        $UserManagerData = Get-ADUser -LDAPFilter '(manager=*)' -SearchBase $OrganizationalUnit -Properties Manager | Select-Object  SamAccountName,Manager
+        Write-LogFile -Message "Successfully retrieved $($UserManagerData.Count) Users from $($OrganizationalUnit)"
     }
 
     catch
     {
-        
+        Write-LogFile -Message "Failure loading users from $($OrganizationalUnit)" -ErrorInfo $_
     }
+
+    Return $UserManagerData
+}
+function Get-EmptyManagerAttribute
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        $OrganizationalUnit
+    )
+
+    try
+    {
+        $EmptyManagerData = Get-ADUser -LDAPFilter '(!(manager=*))' -SearchBase $OrganizationalUnit -Properties Displayname | Select-Object  DisplayName,SamAccountName
+        Write-LogFile -Message "Successfully retrieved $($EmptyManagerData.Count) Users from $($OrganizationalUnit)"
+    }
+
+    catch
+    {
+        Write-LogFile -Message "Failure loading users from $($OrganizationalUnit)" -ErrorInfo $_
+    }
+
+    Return $EmptyManagerData
 }
 
 # Do not load AD PSDrive
@@ -261,7 +317,7 @@ Else
     Write-LogFile -Message "$($MessageDomainDN)$($Script:DomainDN)."
     $Script:DomainControllers = Get-DomainControllersforDomain -DomainName $Script:DomainFQDN
     Write-LogFile -Message "$($MessageDCsFouned)$($Script:DomainControllers.Hostname)."
-    $Script:CurrentDomainController = $Script:DomainControllers[0].Hostname.Value
+    $Script:CurrentDomainController = ($Script:DomainControllers | Select-Object -First 1).Hostname.Value
     Write-LogFile -Message "$($MessageTargetDC)$($Script:CurrentDomainController)."
     
     if (!($Script:DomainFQDN -like "*" -and $Script:CurrentDomainController -Like "*"))
@@ -270,15 +326,45 @@ Else
     }
 }
 
-# Query users
-#
+
 # If an OU was specified
 if ($OrganizationalUnit)
 {
-    $UserManagerData = Get-ADUserManagerData -OrganizationalUnit $OrganizationalUnit
+    # the container equals $OrganizationalUnit
+    $Container = $OrganizationalUnit
 }
 
+# If no OU was specified (e.g. the whole domain should be searched)
 else
 {
-    $UserManagerData = Get-ADUserManagerData -OrganizationalUnit $Script:DomainDN    
+    # the container is set to the domain DN
+    $Container = $Script:DomainDN
 }
+
+# Query users with manager set
+$UserManagerData = Get-ADUserManagerData -OrganizationalUnit $Container
+# Query users without a manager
+$EmptyManagerData = Get-EmptyManagerAttribute -OrganizationalUnit $Container
+
+# Write CSV file with user where no manager is set
+$EmptyManagerData | Export-Csv -Path $OutputFileEmptyManagers -NoTypeInformation
+
+# Create a custom object to store disabled manager users
+$DisabledManagers = New-Object -TypeName pscustomobject
+
+# iterate through all users with manager set
+foreach ($User in $UserManagerData)
+{
+    # Retrieve user account for manager of current loop object
+    $Enabled = Get-ManagerUser -Username $user.Manager
+
+    # if the manager user is disabled
+    if ($Enabled -match "\S")
+    {
+        $DisabledManagers | Add-Member -MemberType NoteProperty -Name SamAccountName -Value $Enabled.SamAccountName
+        $DisabledManagers | Add-Member -MemberType NoteProperty -Name DisplayName -Value $Enabled.DisplayName
+    }
+}
+
+# Write CSV file with user where manager is disabled
+$DisabledManagers | Export-Csv -Path $OutputFileDisabledManagers -NoTypeInformation
