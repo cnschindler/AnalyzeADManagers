@@ -23,10 +23,24 @@ Param
     $OrganizationalUnit
 )
 
-$ScriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
+# User filter. Modify if you want to include/exclude users from the "empty manger" list
+[scriptblock]$Userfilter = {$_.SamAccountName -ne "krbtgt" -and $_.SamAccountName -ne "Guest" -and $_.Displayname -ne "Discovery Search Mailbox" -and $_.Displayname -ne "E4E Encryption Store - Active" -and $_.Displayname -notlike "SystemMailbox*" -and $_.SamAccountName -notlike "Healthmailbox*" -and $_.Displayname -notlike "Microsoft Exchange*"}
+
+# Where to log? $true = Console, $false = File (by default in the folder where the script was started)
+$Script:NoLogging = $true
+
+#Region Logging
+$ScriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Path -Parent # modify if you want to place the logfile in a different folder
+[string]$Script:LogFileNamePrefix = 'AnalyzeADManagers' # modify if you want to specify another logfile prefix
+[string]$Script:LogfileName = ($LogFileNamePrefix + '_{0:yyyyMMdd-HHmmss}.log' -f [DateTime]::Now)
+[string]$Script:LogPath = $ScriptParentPath
+[string]$script:LogFilePath = Join-Path -Path $Script:LogPath -ChildPath $Script:LogfileName    
+[string]$Script:LogFileStart = 'Logging started'
+[string]$Script:LogFileStop = 'Logging stopped'
+#EndRegion Logging
 # Region Output
-$DisabledManagersFilename = 'DisabledManagerUsers.txt'
-$EmptyManagersFileName = 'NoManagerSet.txt'
+$DisabledManagersFilename = 'DisabledManagerUsers.txt' # modify if you want another file name for the list of disabled manager users
+$EmptyManagersFileName = 'NoManagerSet.txt' # modify if you want another file name for the list of empty manager attributes
 $OutputFileDisabledManagers = Join-Path -Path $OutputFolder -ChildPath $DisabledManagersFilename
 $OutputFileEmptyManagers = Join-Path -Path $OutputFolder -ChildPath $EmptyManagersFileName
 # End Region Output
@@ -46,16 +60,7 @@ $MessageDomainDN = 'Current Domain DN: '
 $MessageDCsFouned = 'Domain Controllers found: '
 $MessageTargetDC = 'Target Domain Controller selected: '
 #EndRegion Messages
-[scriptblock]$Userfilter = {$_.SamAccountName -ne "krbtgt" -and $_.SamAccountName -ne "Guest" -and $_.Displayname -ne "Discovery Search Mailbox" -and $_.Displayname -ne "E4E Encryption Store - Active" -and $_.Displayname -notlike "SystemMailbox*" -and $_.SamAccountName -notlike "Healthmailbox*" -and $_.Displayname -notlike "Microsoft Exchange*"}
-#Region Logging
-[string]$Script:LogFileNamePrefix = 'AnalyzeADManagers'
-[string]$Script:LogfileName = ($LogFileNamePrefix + '_{0:yyyyMMdd-HHmmss}.log' -f [DateTime]::Now)
-[string]$Script:LogPath = $ScriptParentPath
-[string]$script:LogFilePath = Join-Path -Path $Script:LogPath -ChildPath $Script:LogfileName    
-[string]$Script:LogFileStart = 'Logging started'
-[string]$Script:LogFileStop = 'Logging stopped'
-$Script:NoLogging = $true
-#EndRegion Logging
+
 function Write-LogFile {
     # Logging function, used for progress and error logging...
     # Uses the globally (script scoped) configured variables 'LogFilePath' to identify the logfile and 'NoLogging' to disable it.
