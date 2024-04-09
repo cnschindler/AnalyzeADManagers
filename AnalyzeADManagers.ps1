@@ -11,7 +11,7 @@
 .PARAMETER OutputFolder
     This parameter is mandatory. The Full Path to the folder where CSV output files are stored
 .PARAMETER OrganizationalUnit
-    This parameter is optional. The distinguishedname of an organizational unit in Active Directory to begin the search
+    This parameter is optional. The distinguishedname of an organizational unit in Active Directory to start the search in
 #>
 
 [CmdLetBinding()]
