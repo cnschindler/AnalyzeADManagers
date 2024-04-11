@@ -204,7 +204,7 @@ function Get-ManagerUser {
     )
 
     $Filter = "Enabled -eq ""False"" -and DistinguishedName -eq ""$UserName"""
-    $Enabled = Get-ADUser -Filter $Filter -Properties DisplayName | Select-Object DisplayName, SamAccountName
+    $Enabled = Get-ADUser -Filter $Filter -Properties DisplayName | Select-Object DisplayName, SamAccountName, DistinguishedName
     Return $Enabled
 }
 function Get-ADUserManagerData {
