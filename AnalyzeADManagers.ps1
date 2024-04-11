@@ -304,7 +304,7 @@ foreach ($User in $UserManagerData) {
     # if the manager user is disabled
     if ($Enabled -match '\S') {
         # if the user was not already added to the hashtable
-        if (-Not $DisabledManagers.ContainsKey($Enabled.SamAccountName)) {
+        if (-Not $DisabledManagers.ContainsKey($Enabled.DisplayName)) {
             $DisabledManagers.Add($Enabled.DisplayName, $enabled.SamAccountName)
         }
     }
